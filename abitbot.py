@@ -25,6 +25,7 @@ CAMPUSES = ['Москва', 'Санкт-Петербург', 'Нижний Но�
 SET_CAMPUS = 0
 SET_PROGRAM = 1
 SET_FIO = 2
+LOOK_PROGRAM = 3
 
 
 def error(update: Update, context: CallbackContext):
@@ -110,7 +111,7 @@ def program_board(campus: str, program: str, user: dict):
     govsponsor_minus_bvi = [abit for abit in govsponsor if not abit['bvi']]
     govsponsor.sort(key=lambda f: -f['score'])
     non_bvi_places = stats["govsponsor"] - len(bvi(abits))
-    if len(govsponsor_minus_bvi) <= non_bvi_places:
+    if len(govsponsor_minus_bvi) <= non_bvi_places and govsponsor:
         govsponsor_score = govsponsor[-1]
     else:
         if govsponsor_minus_bvi:
@@ -149,7 +150,7 @@ def program_board(campus: str, program: str, user: dict):
                 sogl_place += 1
         sogl_place = f"    Бюджет с согласием: {sogl_place}\n"
         if user_abit['bvi']:
-            sogl_place = f"    👍 Вы пуступаете по БВИ\n"
+            sogl_place = f"    👍 Вы поступаете по БВИ\n"
         for i, abit in enumerate(govsponsor):
             if abit['fio'] == user['fio']:
                 place = f"    Бюджет: {i + 1}\n"
@@ -188,6 +189,7 @@ def set_program(update: Update, context: CallbackContext):
             update.message.reply_text(message,
                                       reply_markup=InlineKeyboardMarkup(keyboard_inline),
                                       parse_mode=ParseMode.HTML)
+            set_state(update.message.chat.id, LOOK_PROGRAM)
         except Exception as e:
             print(traceback.format_exc())
             update.message.reply_text('Ой! Мне не удалось получить информацию с сайта ВШЭ. Попробуй позднее.')
@@ -206,6 +208,7 @@ def refresh(update: Update, context: CallbackContext):
                            [InlineKeyboardButton("📊 Определить место в рейтинге", callback_data="rating")]]
         if 'fio' in user:
             keyboard_inline = keyboard_inline[:-1]
+            keyboard_inline[0].append(InlineKeyboardButton("Изменить абитуриента", callback_data="change_abit"))
         query.edit_message_text(text=message, parse_mode=ParseMode.HTML,
                                 reply_markup=InlineKeyboardMarkup(keyboard_inline))
         query.answer(text='Информация обновлена')
@@ -227,6 +230,17 @@ def rating(update: Update, context: CallbackContext):
                                           reply_markup=InlineKeyboardMarkup(keyboard)).message_id
         set_user_param(user_id, 'bot_temp_message_id', msg_id)
         set_state(user_id, SET_FIO)
+
+
+def change_abit(update: Update, context: CallbackContext):
+    query: CallbackQuery = update.callback_query
+    user_id = query.message.chat.id
+    keyboard = [[InlineKeyboardButton('Найти', switch_inline_query_current_chat='Начните писать своё имя: ')]]
+    msg_id = context.bot.send_message(user_id,
+                                      'Выберите абитуриента',
+                                      reply_markup=InlineKeyboardMarkup(keyboard)).message_id
+    set_user_param(user_id, 'bot_temp_message_id', msg_id)
+    set_state(user_id, SET_FIO)
 
 
 def get_score(abits: List[Dict[str, Any]], fio: str):
@@ -355,6 +369,7 @@ def inlinequery(update: Update, context: CallbackContext):
                     title=program,
                     input_message_content=InputTextMessageContent(program)))
         update.inline_query.answer(results[:50])
+        set_state(update.inline_query.from_user.id, SET_PROGRAM)
     elif query.startswith('Начните писать своё имя: '):
         query = query.replace('Начните писать своё имя: ', '').lower()
         user = get_user(update.inline_query.from_user.id)
@@ -441,5 +456,6 @@ if __name__ == '__main__':
     updater.dispatcher.add_handler(CallbackQueryHandler(callback=refresh, pattern='^update$'))
     updater.dispatcher.add_handler(CallbackQueryHandler(callback=rating, pattern='^rating'))
     updater.dispatcher.add_handler(CallbackQueryHandler(callback=close, pattern='^close'))
+    updater.dispatcher.add_handler(CallbackQueryHandler(callback=change_abit, pattern='^change_abit'))
     updater.start_polling()
     updater.idle()
