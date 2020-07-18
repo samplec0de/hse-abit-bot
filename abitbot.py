@@ -77,6 +77,22 @@ def set_campus(update: Update, context: CallbackContext):
         update.message.reply_text('Сообщение не распознано. Перезапустите бота /start')
 
 
+def get_campus_by_id(id: str):
+    global campus_id
+    for campus in campus_id:
+        if campus_id[campus] == id:
+            return campus
+    return None
+
+
+def get_program_by_id(campus: str, id: str):
+    global programs
+    for program in programs[campus]:
+        if programs[campus][program] == id:
+            return program
+    return None
+
+
 def set_abit(update: Update, context: CallbackContext):
     selected_abit = update.message.text.replace('Абитуриент: ', '')
     user_state = get_state(update.message.chat.id)
@@ -176,6 +192,7 @@ def program_board(campus: str, program: str, user: dict):
 
 
 def set_program(update: Update, context: CallbackContext):
+    global campus_id, programs
     selected_program = update.message.text
     user_state = get_state(update.message.chat.id)
     if user_state == SET_PROGRAM:
@@ -184,7 +201,11 @@ def set_program(update: Update, context: CallbackContext):
         selected_campus = user['campus']
         try:
             message = program_board(selected_campus, selected_program, user)
-            keyboard_inline = [[InlineKeyboardButton("🔄 Обновить", callback_data="update")],
+            campus = campus_id[selected_campus] 
+            program = programs[campus][selected_program]
+            update_payload = f"update_{campus}_{program}"
+
+            keyboard_inline = [[InlineKeyboardButton("🔄 Обновить", callback_data=update_payload)],
                                [InlineKeyboardButton("📊 Определить своё место в рейтинге", callback_data="rating")]]
             update.message.reply_text(message,
                                       reply_markup=InlineKeyboardMarkup(keyboard_inline),
@@ -201,10 +222,12 @@ def refresh(update: Update, context: CallbackContext):
     if user_id not in last_refresh or time.time() - last_refresh[user_id] > COOLDOWN:
         last_refresh[user_id] = time.time()
         user = get_user(user_id)
-        selected_campus = user['campus']
-        selected_program = user['program']
+        data = query.data.split('_')[1:]
+        selected_campus = get_campus_by_id(data[0])
+        selected_program = get_program_by_id(data[0], data[1])
         message = program_board(selected_campus, selected_program, user)
-        keyboard_inline = [[InlineKeyboardButton("🔄 Обновить", callback_data="update")],
+
+        keyboard_inline = [[InlineKeyboardButton("🔄 Обновить", callback_data=query.data)],
                            [InlineKeyboardButton("📊 Определить место в рейтинге", callback_data="rating")]]
         if 'fio' in user:
             keyboard_inline = keyboard_inline[:-1]
@@ -453,7 +476,7 @@ if __name__ == '__main__':
                           + list(list(programs.values())[3].keys()))
     updater.dispatcher.add_handler(MessageHandler(Filters.regex(f'({"|".join(merged_programs)})'), set_program))
     updater.dispatcher.add_handler(InlineQueryHandler(inlinequery))
-    updater.dispatcher.add_handler(CallbackQueryHandler(callback=refresh, pattern='^update$'))
+    updater.dispatcher.add_handler(CallbackQueryHandler(callback=refresh, pattern='^update'))
     updater.dispatcher.add_handler(CallbackQueryHandler(callback=rating, pattern='^rating'))
     updater.dispatcher.add_handler(CallbackQueryHandler(callback=close, pattern='^close'))
     updater.dispatcher.add_handler(CallbackQueryHandler(callback=change_abit, pattern='^change_abit'))
