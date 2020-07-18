@@ -223,8 +223,12 @@ def refresh(update: Update, context: CallbackContext):
         last_refresh[user_id] = time.time()
         user = get_user(user_id)
         data = query.data.split('_')[1:]
-        selected_campus = get_campus_by_id(data[0])
-        selected_program = get_program_by_id(data[0], data[1])
+        if data:
+            selected_campus = get_campus_by_id(data[0])
+            selected_program = get_program_by_id(data[0], data[1])
+        else:
+            selected_campus = user['campus']
+            selected_program = user['program']
         message = program_board(selected_campus, selected_program, user)
 
         keyboard_inline = [[InlineKeyboardButton("🔄 Обновить", callback_data=query.data)],
