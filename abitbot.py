@@ -18,6 +18,8 @@ from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKe
 from telegram.ext import Updater, CallbackContext, CommandHandler, MessageHandler, Filters, InlineQueryHandler, \
     CallbackQueryHandler
 
+import parser
+
 COOLDOWN = 15
 CLOSE_MARKUP = InlineKeyboardMarkup([[InlineKeyboardButton('Закрыть', callback_data='close')]])
 NOT_IMPLEMENTED = 'Спасибо. Этот функционал будет добавлен в ближайшее время.'
@@ -90,85 +92,130 @@ def set_abit(update: Update, context: CallbackContext):
 
 
 def program_board(campus: str, program: str, user: dict):
-    xls_id = programs[campus_id[campus]][program]
-    abits = get_abits(xls_id)
+    xls_id = parser.programs[parser.campus_id[campus]][program]
     stats = program_stats(xls_id)
-    edu_form_data = edu_form(abits)
-    if len(bvi(abits)) <= stats["govsponsor"]:
+    xls_url = f'https://priem8.hse.ru/abitreports/bachreports/{xls_id}.xls'
+    try:
+        req = requests.get(xls_url)
+    except urllib3.connection.VerifiedHTTPSConnection as e:
+        raise Exception(e)
+    if req.status_code != 200:
+        raise Exception(f"Status code {req.status_code}")
+    book = xlrd.open_workbook(file_contents=req.content)
+    sheet = book.sheet_by_index(0)
+    for i in range(sheet.ncols):
+        value = sheet.cell_value(6, i)
+        if value == 'Сумма конкурсных баллов':
+            sum_ind = i
+        elif value == 'Форма обучения':
+            edu_form = i
+        elif value == 'Требуется общежитие на время обучения':
+            dominatory = i
+    bvi_count, agreement_count, celevoe_count, osoboe_pravo_count, dormitory_count = 0, 0, 0, 0, 0
+    agreement_celevoe_count = 0
+    commercial_count, govsponsor_count, combined_count = 0, 0, 0
+    ege_govsponsor, bvi, osoboe_pravo, celevoe = [], [], [], []
+    total_abits = sheet.nrows - parser.FIRST_ABIT_IND + 1
+    program_places = parser.admission[campus].get(program)
+    program_places = program_places if program_places is not None else {'бюджет': stats['govsponsor'],
+                                                                        'особое право': 0,
+                                                                        'целевое': 0,
+                                                                        'платное': stats['paid'],
+                                                                        'платное для иностранных': 0
+                                                                        }
+    selected_abit = None
+    place, sogl_place = '', ''
+    for i in range(parser.FIRST_ABIT_IND, sheet.nrows):
+        abit_fio = sheet.cell_value(i, 2)
+        abit_score = sheet.cell_value(i, sum_ind)
+        abit_bvi = sheet.cell_value(i, 3)
+        abit_osoboe_pravo = sheet.cell_value(i, 4)
+        abit_celevoi = sheet.cell_value(i, 5)
+        abit_agreement = sheet.cell_value(i, 6)
+        abit_edu_form = sheet.cell_value(i, edu_form)
+        abit_dormitory = sheet.cell_value(i, dominatory)
+        bvi_count += 1 if abit_bvi else 0
+        agreement_count += 1 if abit_agreement == 'Да' else 0
+        agreement_celevoe_count += 1 if abit_agreement == 'Да' and abit_celevoi == '+' else 0
+        celevoe_count += 1 if abit_celevoi == '+' else 0
+        osoboe_pravo_count += 1 if abit_osoboe_pravo == '+' else 0
+        dormitory_count += 1 if abit_dormitory == '+' else 0
+        commercial_count += 1 if 'К' in abit_edu_form else 0
+        govsponsor_count += 1 if 'Б' in abit_edu_form else 0
+        combined_count += 1 if edu_form == 'Б,К' else 0
+        abit = {'fio': abit_fio, 'score': abit_score,
+                'bvi': abit_bvi,
+                'osoboe_pravo': abit_osoboe_pravo,
+                'celevoi': abit_celevoi,
+                'agreement': abit_agreement,
+                'edu_form': abit_edu_form,
+                'dormitory': abit_dormitory
+                }
+        if abit_bvi:  # по БВИ
+            bvi.append(abit)
+        elif abit_osoboe_pravo == '+':  # Поступление на места в рамках квоты  для лиц, имеющих особое право
+            osoboe_pravo.append(abit)
+        elif abit_celevoi == '+':  # Поступление на места в рамках квоты целевого приема
+            celevoe.append(abit)
+        elif 'Б' in abit_edu_form:  # По ЕГЭ на бюджет
+            ege_govsponsor.append(abit)
+        if 'fio' in user and user['fio']:
+            if user['fio'] == abit_fio:
+                selected_abit = abit
+                if abit_bvi:
+                    sogl_place = f"    👍 Вы поступаете по БВИ\n"
+                elif abit_osoboe_pravo == '+':
+                    sogl_place = agreement_count - len(bvi) + (1 if abit_agreement == 'Нет' else 0)
+                elif abit_celevoi == '+':
+                    sogl_place = agreement_celevoe_count + (1 if abit_agreement == 'Нет' else 0)
+                else:
+                    sogl_place = agreement_count
+                    place = i - parser.FIRST_ABIT_IND + 1
+                    place -= max(0, program_places['целевое'] - celevoe_count)
+                    place -= max(0, program_places['особое право'] - osoboe_pravo_count)
+                    place = f"    Бюджет: {place}\n"
+                if type(sogl_place) == int:
+                    sogl_place = f"    По согласиям: {sogl_place}\n"
+    ege_places = stats["govsponsor"] + stats["hsesponsor"]
+    ege_places -= bvi_count
+    ege_places -= min(osoboe_pravo_count, program_places['особое право'])
+    ege_places -= min(celevoe_count, program_places['целевое'])
+    temp_count = 0
+    temp_index = 0
+    last_abit_score = 0
+    while temp_count < ege_places or temp_index >= len(ege_govsponsor):
+        if ege_govsponsor[temp_index]['agreement'] == 'Да':
+            temp_count += 1
+            last_abit_score = ege_govsponsor[temp_index]['score']
+        temp_index += 1
+    if ege_places <= 0:
+        govsponsor_score = 'БВИ'
+    else:
+        govsponsor_score = ege_govsponsor[ege_places - 1]['score']
+    if len(bvi) <= stats["govsponsor"]:
         is_kvazi = f'✅ Все бви помещаются в бюджет за счет государства' \
-                   f' (свободно {stats["govsponsor"] - len(bvi(abits))} мест)'
+                   f' (свободно {ege_places} мест по ЕГЭ)'
     else:
         is_kvazi = '❌ Бви не помещаются в бюджет за счет государства, ' \
                    'после ранжирования кто-то попадет на бюджет за счёт вышки.'
-    if max(0, len(edu_form_data["Б,К"]) - stats["govsponsor"] - len(bvi(abits))) + len(edu_form_data["К"]) \
-            <= stats["paid"]:
-        no_paid_competition = '✅ Нет конкурса на платное (кол-во претендующих меньше количества мест)'
-    else:
-        no_paid_competition = '❓ Возможен конкурс на платное (Б,К + К > кол-во мест)'
-    xls_url = f'https://priem8.hse.ru/abitreports/bachreports/{xls_id}.xls'
-    non_bvi = set(abits.keys()).difference(bvi(abits))
-    govsponsor = [{'fio': abit, **abits[abit]} for abit in non_bvi.difference(edu_form_data["К"])]
-    govsponsor_minus_bvi = [abit for abit in govsponsor if not abit['bvi']]
-    govsponsor.sort(key=lambda f: -f['score'])
-    non_bvi_places = stats["govsponsor"] - len(bvi(abits))
-    if len(govsponsor_minus_bvi) <= non_bvi_places and govsponsor:
-        govsponsor_score = govsponsor[-1]
-    else:
-        if govsponsor_minus_bvi:
-            govsponsor_score = govsponsor_minus_bvi[non_bvi_places - 1]
-        else:
-            govsponsor_score = 'на бюджет никто не поступает'
-    if non_bvi_places == 0:
-        govsponsor_score = 'бви (обратите внимание, бот не умеет работать с квази-бюджетом)'
-    elif type(govsponsor_score) == dict:
-        govsponsor_score = str(int(govsponsor_score['score']))
-    with_soglasie_minus_bvi = [abit for abit in govsponsor if not abit['bvi'] and abit['agreement'] == 'Да']
-    if len(with_soglasie_minus_bvi) <= non_bvi_places:
-        govsponsor_soglasie_score = int(with_soglasie_minus_bvi[-1]['score'])
-    else:
-        if with_soglasie_minus_bvi:
-            govsponsor_soglasie_score = int(with_soglasie_minus_bvi[non_bvi_places - 1]['score'])
-        else:
-            govsponsor_soglasie_score = 'на бюджет никто не поступает'
-    if non_bvi_places == 0:
-        govsponsor_soglasie_score = 'бви (обратите внимание, бот не умеет работать с квази-бюджетом)'
-    place = ''
-    sogl_place = ''
-    for_user = ''
-    govsponsor_sogl = [abit for abit in govsponsor if abit['agreement'] == 'Да']
-
-    if 'fio' in user and user['fio'] in [abit['fio'] for abit in govsponsor] + bvi(abits):
-        user_abit = {}
-        for fio, abit in zip(abits.keys(), abits.values()):
-            if fio == user['fio']:
-                user_abit = abit
-                break
-        sogl_place = 1 + len(bvi(abits))
+    for_user, your_place = '', ''
+    if 'fio' in user and user['fio']:
         for_user = f"Выбранный абитуриент: {user['fio']}\n"
-        for abit in govsponsor_sogl:
-            if abit['score'] >= get_score(abits, user['fio']) and abit['fio'] != user['fio'] and not abit['bvi']:
-                sogl_place += 1
-        sogl_place = f"    Бюджет с согласием: {sogl_place}\n"
-        if user_abit['bvi']:
-            sogl_place = f"    👍 Вы поступаете по БВИ\n"
-        for i, abit in enumerate(govsponsor):
-            if abit['fio'] == user['fio']:
-                place = f"    Бюджет: {i + 1}\n"
-    your_place = '👤 Ваши места:\n' + place + sogl_place if len(place + sogl_place) > 0 else ''
+        if selected_abit:
+            your_place = '👤 Ваши места:\n' + place + sogl_place
     message = f'Вы отслеживаете направление <a href="{xls_url}">"{program}" ({campus})</a>\n\n' \
-              f'📄 Всего заявлений: {len(abits)}\n' \
-              f'😳 Бюджет: {len(edu_form_data["Б"])} (бви {len(bvi(abits))}, ' \
+              f'📄 Всего заявлений: {total_abits}\n' \
+              f'😳 Бюджет: {govsponsor_count} (бви {len(bvi)}, ' \
               f'всего {stats["govsponsor"]} + {stats["hsesponsor"]} за счёт ВШЭ)\n' \
-              f'💰 Контракт: {len(edu_form_data["К"])} (всего {stats["paid"]})\n' \
-              f'🤑 Бюджет, контракт: {len(edu_form_data["Б,К"])}\n' \
-              f'🤝 С согласием на зачисление: {len(soglasie(abits))}\n' \
-              f'🏚 С общежитием: {len(dormitory(abits))}\n' \
-              f'🏭 Целевое: {len(celevoe(abits))}\n\n' \
-              f'{is_kvazi}\n' \
-              f'{no_paid_competition}\n\n' \
+              f'💰 Контракт: {commercial_count} (всего {stats["paid"]})\n' \
+              f'🤑 Бюджет, контракт: {combined_count}\n' \
+              f'🤝 С согласием на зачисление: {agreement_count}\n' \
+              f'🏚 С общежитием: {dormitory_count}\n' \
+              f'🏭 Целевое: {celevoe_count}\n\n' \
+              f'{is_kvazi}\n\n' \
               f'<code>📊 Проходные бюджет:\n' \
               f'    Общий: {govsponsor_score}\n' \
-              f'    По согласиям: {govsponsor_soglasie_score}\n' \
+              f'    По согласиям: {last_abit_score}\n' \
               f'{your_place}</code>' \
               f'{for_user}' \
               f'🕔 Последнее обновление {datetime.now().strftime("%d.%m.%Y %H:%M:%S")} (база ВШЭ: {stats["hsetime"]})'
@@ -203,7 +250,10 @@ def refresh(update: Update, context: CallbackContext):
         user = get_user(user_id)
         selected_campus = user['campus']
         selected_program = user['program']
-        message = program_board(selected_campus, selected_program, user)
+        try:
+            message = program_board(selected_campus, selected_program, user)
+        except:
+            print(traceback.format_exc())
         keyboard_inline = [[InlineKeyboardButton("🔄 Обновить", callback_data="update")],
                            [InlineKeyboardButton("📊 Определить место в рейтинге", callback_data="rating")]]
         if 'fio' in user:
@@ -243,45 +293,6 @@ def change_abit(update: Update, context: CallbackContext):
     set_state(user_id, SET_FIO)
 
 
-def get_score(abits: List[Dict[str, Any]], fio: str):
-    for abit in abits:
-        if abit == fio:
-            return abits[abit]['score']
-    return -1
-
-
-def bvi(data: dict):
-    result = []
-    for abit, data in zip(data.keys(), data.values()):
-        if data['bvi']:
-            result.append(abit)
-    return result
-
-
-def soglasie(data: dict):
-    result = []
-    for abit, data in zip(data.keys(), data.values()):
-        if data['agreement'] == 'Да':
-            result.append({'fio': abit, **data})
-    return result
-
-
-def dormitory(data: dict):
-    result = []
-    for abit, data in zip(data.keys(), data.values()):
-        if data['dormitory'] == '+':
-            result.append(abit)
-    return result
-
-
-def celevoe(data: dict):
-    result = []
-    for abit, data in zip(data.keys(), data.values()):
-        if data['celevoi'] == '+':
-            result.append(abit)
-    return result
-
-
 def edu_form(data: dict):
     result = {'Б': [], 'К': [], 'Б,К': []}
     for abit, data in zip(data.keys(), data.values()):
@@ -312,47 +323,6 @@ def program_stats(xls_id: int):
     return result
 
 
-def get_abits(xls_id: int):
-    try:
-        req = requests.get(f'https://priem8.hse.ru/abitreports/bachreports/{xls_id}.xls')
-    except urllib3.connection.VerifiedHTTPSConnection as e:
-        raise Exception(e)
-    if req.status_code != 200:
-        raise Exception(f"Status code {req.status_code}")
-    book = xlrd.open_workbook(file_contents=req.content)
-    sheet = book.sheet_by_index(0)
-    sum_ind = -1
-    edu_form = -1
-    dominatory = -1
-    for i in range(sheet.ncols):
-        value = sheet.cell_value(6, i)
-        if value == 'Сумма конкурсных баллов':
-            sum_ind = i
-        elif value == 'Форма обучения':
-            edu_form = i
-        elif value == 'Требуется общежитие на время обучения':
-            dominatory = i
-    FIRST_ABIT_IND = 8
-    abits = {}
-    for i in range(FIRST_ABIT_IND, sheet.nrows):
-        abit_fio = sheet.cell_value(i, 2)
-        abit_score = sheet.cell_value(i, sum_ind)
-        abit_bvi = sheet.cell_value(i, 3)
-        abit_osoboe_pravo = sheet.cell_value(i, 4)
-        abit_celevoi = sheet.cell_value(i, 5)
-        abit_agreement = sheet.cell_value(i, 6)
-        abit_edu_form = sheet.cell_value(i, edu_form)
-        abit_dormitory = sheet.cell_value(i, dominatory)
-        abits[abit_fio] = {'score': abit_score,
-                           'bvi': abit_bvi,
-                           'osoboe_pravo': abit_osoboe_pravo,
-                           'celevoi': abit_celevoi,
-                           'agreement': abit_agreement,
-                           'edu_form': abit_edu_form,
-                           'dormitory': abit_dormitory}
-    return abits
-
-
 def inlinequery(update: Update, context: CallbackContext):
     query = update.inline_query.query
     if query.startswith('Начните писать название: '):
@@ -362,7 +332,7 @@ def inlinequery(update: Update, context: CallbackContext):
         if not result:
             return
         user_campus = result['campus']
-        for program in programs[campus_id[user_campus]]:
+        for program in parser.programs[parser.campus_id[user_campus]]:
             if query in program.lower() or query == 'все':
                 results.append(InlineQueryResultArticle(
                     id=uuid4(),
@@ -373,8 +343,8 @@ def inlinequery(update: Update, context: CallbackContext):
     elif query.startswith('Начните писать своё имя: '):
         query = query.replace('Начните писать своё имя: ', '').lower()
         user = get_user(update.inline_query.from_user.id)
-        xls_id = programs[campus_id[user['campus']]][user['program']]
-        abits = get_abits(xls_id)
+        xls_id = parser.programs[parser.campus_id[user['campus']]][user['program']]
+        abits = parser.get_abits(xls_id)
         results = []
         for abit in abits:
             if query in abit.lower() or query == 'все':
@@ -391,42 +361,7 @@ def close(update: Update, context: CallbackContext):
     query.answer()
 
 
-def update_data():
-    global programs, campus_id
-    parse_request = None
-    while True:
-        try:
-            parse_request = requests.post('https://priem8.hse.ru/hseAnonymous/batch.xml', data={
-                'query': '<root><query class="TTimePoint" fetchall="1"><item part="0" name="Passed"/>'
-                         '<item part="0" name="Name"/><item part="1" name="Master$N" value="BachAbitAdmission"/>'
-                         '</query><query class="TRegDepartment" fetchall="1"><item part="0" name="ID"/>'
-                         '<item part="0" name="Description"/><item part="1" name="AdmModeratorPosition" value="*"/>'
-                         '<item part="2" name="IsCentral" special="7"/><item part="2" name="AdmModeratorPosition"/>'
-                         '</query><query class="TBachCompetition" fetchall="1">'
-                         '<item part="0" name="ID"/><item part="0" name="OfficialName"/>'
-                         '<item part="0" name="LearnProgram$D"/>'
-                         '<item part="0" name="RegDepartment"/>'
-                         '<item part="0" name="ForeignExams"/><item part="1" name="Master" value="3656465518"/>'
-                         '<item part="1" name="NotPublishLists" value="0"/><item part="2" name="OfficialName"/>'
-                         '<item part="2" name="LearnProgram$D"/></query></root>'})
-            break
-        except requests.exceptions.ConnectionError:
-            logger.info("Пытаюсь подключиться к сайту ВШЭ...")
-            time.sleep(0.5)
-    res = xmltodict.parse(parse_request.text)['batch']['data']
-    campus_id = {}
-    for campus in res[1]['row']:
-        campus_id[campus['Description'].replace('НИУ ВШЭ - ', '')] = campus['ID']['#text']
-    programs = dict.fromkeys(campus_id.values(), None)
-    for program in res[2]['row']:
-        if not programs[program['RegDepartment']['#text']]:
-            programs[program['RegDepartment']['#text']] = {}
-        programs[program['RegDepartment']['#text']][program['LearnProgram-D']] = program['ID']['#text']
-
-
 if __name__ == '__main__':
-    programs = {}
-    campus_id = {}
     last_refresh = {}
     logger = logging.getLogger("BOT")
     logging.getLogger("requests").setLevel(logging.WARNING)
@@ -436,7 +371,8 @@ if __name__ == '__main__':
     ch.setFormatter(formatter)
     logger.addHandler(ch)
     logger.setLevel(logging.INFO)
-    update_data()
+    parser.update_data()
+    parser.admission_data()
     mongo = pymongo.MongoClient(os.environ.get('mongo_uri'))
     db = mongo['hse-abit']
     users: Collection = db['users']
@@ -447,10 +383,10 @@ if __name__ == '__main__':
     updater.dispatcher.add_handler(CommandHandler('restart', start))
     updater.dispatcher.add_handler(MessageHandler(Filters.regex(f'({"|".join(CAMPUSES)})'), set_campus))
     updater.dispatcher.add_handler(MessageHandler(Filters.regex(f'^Абитуриент: .*$'), set_abit))
-    merged_programs = set(list(list(programs.values())[0].keys())
-                          + list(list(programs.values())[1].keys())
-                          + list(list(programs.values())[2].keys())
-                          + list(list(programs.values())[3].keys()))
+    merged_programs = set(list(list(parser.programs.values())[0].keys())
+                          + list(list(parser.programs.values())[1].keys())
+                          + list(list(parser.programs.values())[2].keys())
+                          + list(list(parser.programs.values())[3].keys()))
     updater.dispatcher.add_handler(MessageHandler(Filters.regex(f'({"|".join(merged_programs)})'), set_program))
     updater.dispatcher.add_handler(InlineQueryHandler(inlinequery))
     updater.dispatcher.add_handler(CallbackQueryHandler(callback=refresh, pattern='^update$'))
