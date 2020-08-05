@@ -183,7 +183,7 @@ def program_board(campus: str, program: str, user: dict):
     temp_count = 0
     temp_index = 0
     last_abit_score = 0
-    while temp_count < ege_places or temp_index >= len(ege_govsponsor):
+    while temp_count < ege_places and temp_index < len(ege_govsponsor):
         if ege_govsponsor[temp_index]['agreement'] == 'Да':
             temp_count += 1
             last_abit_score = ege_govsponsor[temp_index]['score']
