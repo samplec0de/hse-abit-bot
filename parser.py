@@ -123,8 +123,8 @@ def admission_data():
                                                'платное для иностранных': data[5].text
                                                }
             for key in admission[campus][program_name]:
-                if admission[campus][program_name][key].isdigit():
-                    admission[campus][program_name][key] = int(admission[campus][program_name][key])
+                if admission[campus][program_name][key].strip().isdigit():
+                    admission[campus][program_name][key] = int(admission[campus][program_name][key].strip())
                 else:
                     admission[campus][program_name][key] = 0
     if campus == 'Санкт-Петербург':

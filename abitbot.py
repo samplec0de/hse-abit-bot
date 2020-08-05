@@ -205,13 +205,14 @@ def program_board(campus: str, program: str, user: dict):
             your_place = '👤 Ваши места:\n' + place + sogl_place
     message = f'Вы отслеживаете направление <a href="{xls_url}">"{program}" ({campus})</a>\n\n' \
               f'📄 Всего заявлений: {total_abits}\n' \
-              f'😳 Бюджет: {govsponsor_count} (бви {len(bvi)}, ' \
+              f'😳 Бюджет: {govsponsor_count}/{program_places["бюджет"]} (бви {len(bvi)}, ' \
               f'всего {stats["govsponsor"]} + {stats["hsesponsor"]} за счёт ВШЭ)\n' \
               f'💰 Контракт: {commercial_count} (всего {stats["paid"]})\n' \
               f'🤑 Бюджет, контракт: {combined_count}\n' \
               f'🤝 С согласием на зачисление: {agreement_count}\n' \
               f'🏚 С общежитием: {dormitory_count}\n' \
-              f'🏭 Целевое: {celevoe_count}\n\n' \
+              f'😉 По особому праву: {osoboe_pravo_count}/{program_places["особое право"]}\n' \
+              f'🏭 Целевое: {celevoe_count}/{program_places["целевое"]}\n\n' \
               f'{is_kvazi}\n\n' \
               f'<code>📊 Проходные бюджет:\n' \
               f'    Общий: {govsponsor_score}\n' \
