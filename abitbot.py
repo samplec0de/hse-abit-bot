@@ -207,8 +207,8 @@ def program_board(campus: str, program: str, user: dict):
               f'📄 Всего заявлений: {total_abits}\n' \
               f'😳 Бюджет: {govsponsor_count}/{program_places["бюджет"]} (бви {len(bvi)}, ' \
               f'всего {stats["govsponsor"]} + {stats["hsesponsor"]} за счёт ВШЭ)\n' \
-              f'💰 Контракт: {commercial_count} (всего {stats["paid"]})\n' \
-              f'🤑 Бюджет, контракт: {combined_count}\n' \
+              f'💰 Коммерция: {commercial_count} (всего {stats["paid"]})\n' \
+              f'🤑 Бюджет, коммерция: {combined_count}\n' \
               f'🤝 С согласием на зачисление: {agreement_count}\n' \
               f'🏚 С общежитием: {dormitory_count}\n' \
               f'😉 По особому праву: {osoboe_pravo_count}/{program_places["особое право"]}\n' \
