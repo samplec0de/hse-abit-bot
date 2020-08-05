@@ -163,7 +163,7 @@ def program_board(campus: str, program: str, user: dict):
             if user['fio'] == abit_fio:
                 selected_abit = abit
                 if abit_bvi:
-                    sogl_place = f"    👍 Вы поступаете по БВИ\n"
+                    sogl_place = f"    👍 Вы поступаете по БВИ ({agreement_count} место)\n"
                 elif abit_osoboe_pravo == '+':
                     sogl_place = agreement_count - len(bvi) + (1 if abit_agreement == 'Нет' else 0)
                 elif abit_celevoi == '+':
