@@ -4,14 +4,13 @@ import os
 import time
 import traceback
 from datetime import datetime
-from typing import Any, List, Dict
+from typing import Any
 from uuid import uuid4
 
 import pymongo
 import requests
 import urllib3
 import xlrd
-import xmltodict
 from pymongo.collection import Collection
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove, \
     InlineQueryResultArticle, InputTextMessageContent, CallbackQuery, ParseMode
@@ -142,7 +141,7 @@ def program_board(campus: str, program: str, user: dict):
         dormitory_count += 1 if abit_dormitory == '+' else 0
         commercial_count += 1 if 'К' in abit_edu_form else 0
         govsponsor_count += 1 if 'Б' in abit_edu_form else 0
-        combined_count += 1 if edu_form == 'Б,К' else 0
+        combined_count += 1 if 'Б,К' == abit_edu_form else 0
         abit = {'fio': abit_fio, 'score': abit_score,
                 'bvi': abit_bvi,
                 'osoboe_pravo': abit_osoboe_pravo,
@@ -206,7 +205,7 @@ def program_board(campus: str, program: str, user: dict):
     message = f'Вы отслеживаете направление <a href="{xls_url}">"{program}" ({campus})</a>\n\n' \
               f'📄 Всего заявлений: {total_abits}\n' \
               f'😳 Бюджет: {govsponsor_count}/{program_places["бюджет"]} (бви {len(bvi)}, ' \
-              f'всего {stats["govsponsor"]} + {stats["hsesponsor"]} за счёт ВШЭ)\n' \
+              f'всего {program_places["бюджет"]} + {stats["hsesponsor"]} за счёт ВШЭ)\n' \
               f'💰 Коммерция: {commercial_count} (всего {stats["paid"]})\n' \
               f'🤑 Бюджет, коммерция: {combined_count}\n' \
               f'🤝 С согласием на зачисление: {agreement_count}\n' \
@@ -303,7 +302,7 @@ def edu_form(data: dict):
 
 def program_stats(xls_id: int):
     try:
-        req = requests.get(f'https://priem8.hse.ru/abitreports/bachreports/{xls_id}.xls')
+        req = requests.get(f'https://priem25.hse.ru/abitreports/bachreports/{xls_id}.xls')
     except urllib3.connection.VerifiedHTTPSConnection as e:
         raise Exception(e)
     if req.status_code != 200:

@@ -11,6 +11,7 @@ from bs4 import BeautifulSoup
 FIRST_ABIT_IND = 8
 logger = logging.getLogger("BOT")
 logging.getLogger("requests").setLevel(logging.WARNING)
+logger.setLevel(logging.INFO)
 programs, campus_id = {}, {}
 links = {'Москва': 'https://ba.hse.ru/kolmest2020',
          'Нижний Новгород': 'https://nnov.hse.ru/bacnn/kolmest2020',
@@ -24,7 +25,7 @@ def update_data():
     global programs, campus_id
     while True:
         try:
-            parse_request = requests.post('https://priem8.hse.ru/hseAnonymous/batch.xml', data={
+            parse_request = requests.post('https://priem25.hse.ru/hseAnonymous/batch.xml', data={
                 'query': '<root><query class="TTimePoint" fetchall="1"><item part="0" name="Passed"/>'
                          '<item part="0" name="Name"/><item part="1" name="Master$N" value="BachAbitAdmission"/>'
                          '</query><query class="TRegDepartment" fetchall="1"><item part="0" name="ID"/>'
@@ -53,7 +54,7 @@ def update_data():
 
 def get_abits(xls_id: int):
     try:
-        req = requests.get(f'https://priem8.hse.ru/abitreports/bachreports/{xls_id}.xls')
+        req = requests.get(f'https://priem25.hse.ru/abitreports/bachreports/{xls_id}.xls')
     except urllib3.connection.VerifiedHTTPSConnection as e:
         raise Exception(e)
     if req.status_code != 200:
@@ -123,8 +124,8 @@ def admission_data():
                                                'платное для иностранных': data[5].text
                                                }
             for key in admission[campus][program_name]:
-                if admission[campus][program_name][key].strip().isdigit():
-                    admission[campus][program_name][key] = int(admission[campus][program_name][key].strip())
+                if admission[campus][program_name][key].strip(' *\t\n').isdigit():
+                    admission[campus][program_name][key] = int(admission[campus][program_name][key].strip(' *\t\n'))
                 else:
                     admission[campus][program_name][key] = 0
     if campus == 'Санкт-Петербург':
